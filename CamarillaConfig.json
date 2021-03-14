@@ -1,14 +1,7 @@
 {
     "GoogleSheetURL": "https://docs.google.com/spreadsheets/d/",
-    "GoogleSheetName": "GoogSheet",
-    "SenderEmailAddress": "gnanaprakash.j@gmail.com",
-    "RecipientEmailAddress": "gnanaprakashsivam@gmail.com",
-    "ExportPDFFileName": "Camarilla_Calc_PDF",
-	"URL": "https://www.mcxindia.com/market-data/bhavcopy",
-    "Filepath": "C:\\Users\\Sivam\\Downloads\\",
-    "FileName": "BhavCopyDateWise",
-    "FileExtn": ".csv",
-    "IsAutoDate": "True",
+    "GoogleSheetName": "CamarillaSheet",
+    "URL": "https://www.mcxindia.com/market-data/bhavcopy",
     "OutputXLFilename": "Camarilla_Calc.xlsx",
     "Symbols": "CRUDEOIL-1,NATURALGAS-1,GOLD-1,SILVER-1,COPPER-2,ZINC-2,LEAD-2,NICKEL-2,ALUMINIUM-2"
 }

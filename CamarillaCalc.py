@@ -2,22 +2,14 @@ import pandas as pd
 import openpyxl
 import requests
 import gspread
-import json
-import os
 import re
 from bs4 import BeautifulSoup
 from oauth2client.service_account import ServiceAccountCredentials
 from openpyxl.utils.dataframe import dataframe_to_rows
-import smtplib 
-from email.message import EmailMessage
-import base64
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import *
-from datetime import datetime
 import commonUtility as common
 
 #Program to download data file from web, process the data and get Camarilla values
-#and finally store those values in local XL file, google sheets, export sheet as PDF.
+#and finally store those values in local XL file and google sheets.
 
 def downloadWebData():
     print("Getting data from web...")
@@ -42,8 +34,6 @@ def processInputData(data):
 
     #Strip of leading whitespaces in the column
     data["Symbol"] = data["Symbol"].str.strip()
-    #data['Symbol'] = data.apply(lambda row: str(row.Symbol).strip(), axis = 1)
-
     symbols = common.symbols.split(",")
     # populate dataframe with first record
     finalData = filterData(data,symbols[0])
@@ -70,7 +60,7 @@ def filterData(data,options):
 #EOF filterData
 
 def storeDataToXL(data):
-    workbook = openpyxl.load_workbook(common.OutputXLFilename)
+    workbook = openpyxl.load_workbook(common.outputXLFilename)
     worksheet = workbook['Sheet2']
 
     #Saving OHLC values to Excel in Sheet2
@@ -104,7 +94,7 @@ def storeDataToXL(data):
         for col_idx, value in enumerate(row, 3):
             worksheet.cell(row=col_idx, column=row_idx, value=value)
 
-    workbook.save(common.OutputXLFilename)
+    workbook.save(common.outputXLFilename)
     print('Final Data stored to Excel sucessfully...')
     return data
 #EOF storeDataToXL
@@ -118,90 +108,17 @@ def saveDataToGoogleSheets(data):
     client = gspread.authorize(creds) 
     sheets = client.open(common.googleSheetName)
     worksheet = sheets.get_worksheet(0)
-    key = {}
-    key["accessToken"] = client.auth.token
-    key["sheetId"] = sheets.id
-
     dataTranposed = data.transpose().fillna(0)
     worksheet.update('CamarillaRange', dataTranposed.values.tolist())
     print("Data moved to Google sheets...")
-    return key
 #EOF saveDataToGoogleSheets
-
-def exportGoogleSheetsAsPDF(key):
-    sheetNum = '0'
-    exportURL = (common.googleSheetURL + key["sheetId"] + '/export?'
-           + 'format=pdf'           # export as PDF
-           + '&size=legal'          # A3/A4/A5/B4/B5/letter/tabloid/legal/statement/executive/folio
-           + '&scale=4'             # 1= Normal 100% / 2= Fit to width / 3= Fit to height / 4= Fit to Page
-           + '&portrait=false'      # landscape
-           + '&top_margin=0.75'     # Margin
-           + '&bottom_margin=0.75'  # Margin
-           + '&left_margin=0.7'     # Margin
-           + '&right_margin=0.7'    # Margin
-           + '&gid=' + sheetNum     # sheetId
-           + '&access_token=' + key["accessToken"])  # accesstoken
-    req = requests.get(exportURL)
-    with open(common.exportPDFFileName, 'wb') as saveFile:
-        saveFile.write(req.content)
-    print('Google Sheets exported as PDF sucessfully....')
-#EOF exportGoogleSheetsAsPDF
-
-def sendEmail(filename):
-    print('Emailing PDF....')
-    msg = EmailMessage()
-    msg['Subject'] = "Camarilla Values for Today - "+datetime.today().strftime("%b-%d-%Y")
-    msg['From'] = common.senderEmailAddress 
-    msg['To'] = common.recipientEmailAddress 
-    msg.set_content('Camarilla Values for today are attached in the PDF. \nThanks')
-
-    with open(filename, 'rb') as file:
-        msg.add_attachment(file.read(), maintype='application', subtype='octet-stream', filename=file.name)
-    
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-        smtp.login(common.senderEmailAddress, decrypt(' "7$jcc')) 
-        smtp.send_message(msg)
-#EOF-sendEmail
-
-def sendGridMail(filename):
-    sender = common.senderEmailAddress
-    receiver = common.recipientEmailAddress
-    email_subject = "Camarilla Values for Today - "+datetime.today().strftime("%b-%d-%Y")
-    email_body = 'Camarilla Values for today are attached in the PDF. \nThanks'
-    sg = SendGridAPIClient(api_key=common.sendGrid_API_KEY)
-    message = Mail(from_email=sender,to_emails=receiver,subject=email_subject,html_content=email_body)
-        
-    with open(filename, 'rb') as f:
-        data = f.read()
-    encoded = base64.b64encode(data).decode()
-    attachment = Attachment()
-    attachment.file_content = FileContent(encoded)
-    attachment.file_type = FileType('application/pdf')
-    attachment.file_name = FileName(filename)
-    attachment.disposition = Disposition('attachment')
-    attachment.content_id = ContentId('Content ID')
-    message.attachment = attachment
-
-    response = sg.send(message)
-    print("Emailing PDF....Status Code-",response.status_code)
-#EOF sendGridMail
-        
-def decrypt(inpString): 
-    xorKey = 'S'; 
-    length = len(inpString); 
-    for i in range(length): 
-        inpString = (inpString[:i] + chr(ord(inpString[i]) ^ ord(xorKey)) + inpString[i + 1:]); 
-    return inpString 
 
 if __name__=="__main__": 
     try:
         data = downloadWebData()
         data = processInputData(data)
         data = storeDataToXL(data)
-        key  = saveDataToGoogleSheets(data)
-        exportGoogleSheetsAsPDF(key)
-        #sendEmail(common.exportPDFFileName)
-        sendGridMail(common.exportPDFFileName)
+        saveDataToGoogleSheets(data)
     except Exception as e:
         print("Error: ",e)
     finally:
