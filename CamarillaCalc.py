@@ -119,7 +119,7 @@ if __name__=="__main__":
     try:
         print("Main Program started...",datetime.today())
         sched = BlockingScheduler(timezone="Asia/Kolkata")
-        @sched.scheduled_job('cron', day_of_week='mon-sun', hour=22)
+        @sched.scheduled_job('cron', day_of_week='mon-sun', hour=22, minute=3)
         def scheduled_job():
             print('Job started @...',datetime.today())
             data = downloadWebData()
