@@ -6,6 +6,8 @@ import re
 from bs4 import BeautifulSoup
 from oauth2client.service_account import ServiceAccountCredentials
 from openpyxl.utils.dataframe import dataframe_to_rows
+from datetime import datetime
+from apscheduler.schedulers.blocking import BlockingScheduler
 import commonUtility as common
 
 #Program to download data file from web, process the data and get Camarilla values
@@ -115,10 +117,17 @@ def saveDataToGoogleSheets(data):
 
 if __name__=="__main__": 
     try:
-        data = downloadWebData()
-        data = processInputData(data)
-        data = storeDataToXL(data)
-        saveDataToGoogleSheets(data)
+        print("Main Program started...",datetime.today())
+        sched = BlockingScheduler(timezone="Asia/Kolkata")
+        @sched.scheduled_job('cron', day_of_week='mon-sun', hour=21,minute=57)
+        def scheduled_job():
+            print('Job started @...',datetime.today())
+            data = downloadWebData()
+            data = processInputData(data)
+            data = storeDataToXL(data)
+            saveDataToGoogleSheets(data)
+        sched.start()
+        print("Main Program Ended...",datetime.today())
     except Exception as e:
         print("Error: ",e)
     finally:
