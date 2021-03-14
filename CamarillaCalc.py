@@ -1,0 +1,208 @@
+import pandas as pd
+import openpyxl
+import requests
+import gspread
+import json
+import os
+import re
+from bs4 import BeautifulSoup
+from oauth2client.service_account import ServiceAccountCredentials
+from openpyxl.utils.dataframe import dataframe_to_rows
+import smtplib 
+from email.message import EmailMessage
+import base64
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import *
+from datetime import datetime
+import commonUtility as common
+
+#Program to download data file from web, process the data and get Camarilla values
+#and finally store those values in local XL file, google sheets, export sheet as PDF.
+
+def downloadWebData():
+    print("Getting data from web...")
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.76 Safari/537.36'}
+    response = requests.get(common.webURL, headers=headers)
+    soup = BeautifulSoup(response.text,'html.parser')
+    # Bhavcopy trade data stored in vBC variable in the script tag of page content
+    regex = r"var vBC=(.*?);"
+    scripts = soup.find_all('script')
+    for script in scripts:	
+       match = re.search(regex, str(script.string)) 
+       if match != None: 
+          df = pd.read_json(match.group(1))
+          df = df[df['InstrumentName']=='FUTCOM'] #filter only FUTCOM symbols
+          df = df.iloc[:, 1:8] #only get columns 1 to 8 from dataframe
+          break
+    return df
+#EOF downloadWebData
+
+def processInputData(data):
+    print("Processing data...")
+
+    #Strip of leading whitespaces in the column
+    data["Symbol"] = data["Symbol"].str.strip()
+    #data['Symbol'] = data.apply(lambda row: str(row.Symbol).strip(), axis = 1)
+
+    symbols = common.symbols.split(",")
+    # populate dataframe with first record
+    finalData = filterData(data,symbols[0])
+
+    # append dataframe from second record onwards
+    for i in range(1,len(symbols)):
+        finalData = finalData.append(filterData(data,symbols[i]))
+
+    # reseting the default index
+    finalData.set_index(['Symbol'], inplace = True)
+    return finalData
+#EOF-processInputData
+
+def filterData(data,options):
+    options = options.split("-")
+    symbol = options[0]
+    rownum = options[1]
+    #selecting rows based on condition and then select top row from the rows
+    if(rownum == "1"):
+        data = (data[data['Symbol']==symbol]).head(1)
+    else:
+        data = ((data[data['Symbol']==symbol]).head(2)).tail(1)
+    return data
+#EOF filterData
+
+def storeDataToXL(data):
+    workbook = openpyxl.load_workbook(common.OutputXLFilename)
+    worksheet = workbook['Sheet2']
+
+    #Saving OHLC values to Excel in Sheet2
+    rows = dataframe_to_rows(data, index=False, header=False)
+    for r_idx, row in enumerate(rows, 2):
+        for c_idx, value in enumerate(row, 2):
+             worksheet.cell(row=r_idx, column=c_idx, value=value)
+
+    #Calculating High Values
+    data['H6'] = (data['High']/data['Low'])*data['Close']
+    data['H4'] = (0.55*(data['High'] - data['Low'])) + data['Close']
+    data['H5'] = (data['H6'] + data['H4'])/2
+    data['H3'] = (0.275*(data['High'] - data['Low'])) + data['Close']
+    data['H2'] = (0.183*(data['High'] - data['Low'])) + data['Close']
+    data['H1'] = (0.0916*(data['High'] - data['Low'])) + data['Close']
+    #Calculating Low Values
+    data['L1'] = data['Close'] - (0.0916*(data['High'] - data['Low']))
+    data['L2'] = data['Close'] - (0.183*(data['High'] - data['Low']))
+    data['L3'] = data['Close'] - (0.275*(data['High'] - data['Low']))
+    data['L4'] = data['Close'] - (0.55*(data['High'] - data['Low']))
+    data['L6'] = data['Close'] - (data['H6']- data['Close'])
+    data['L5'] = (data['L4'] + data['L6'])/2
+
+    data = round(data,2)
+    data = data[['H6','H5','H4','H3','H2','H1','L1','L2','L3','L4','L5','L6']]
+
+    #Saving Camarilla values to Excel in Sheet1
+    worksheet = workbook['Sheet1']
+    rows = dataframe_to_rows(data, index=False, header=False)
+    for row_idx, row in enumerate(rows, 3):
+        for col_idx, value in enumerate(row, 3):
+            worksheet.cell(row=col_idx, column=row_idx, value=value)
+
+    workbook.save(common.OutputXLFilename)
+    print('Final Data stored to Excel sucessfully...')
+    return data
+#EOF storeDataToXL
+
+def saveDataToGoogleSheets(data):
+    scope = ["https://spreadsheets.google.com/feeds", 'https://www.googleapis.com/auth/spreadsheets', 
+		"https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"] 
+
+    # Assign credentials ann path of style sheet 
+    creds = ServiceAccountCredentials.from_json_keyfile_name(("GprakashSivam.json"), scope) 
+    client = gspread.authorize(creds) 
+    sheets = client.open(common.googleSheetName)
+    worksheet = sheets.get_worksheet(0)
+    key = {}
+    key["accessToken"] = client.auth.token
+    key["sheetId"] = sheets.id
+
+    dataTranposed = data.transpose().fillna(0)
+    worksheet.update('CamarillaRange', dataTranposed.values.tolist())
+    print("Data moved to Google sheets...")
+    return key
+#EOF saveDataToGoogleSheets
+
+def exportGoogleSheetsAsPDF(key):
+    sheetNum = '0'
+    exportURL = (common.googleSheetURL + key["sheetId"] + '/export?'
+           + 'format=pdf'           # export as PDF
+           + '&size=legal'          # A3/A4/A5/B4/B5/letter/tabloid/legal/statement/executive/folio
+           + '&scale=4'             # 1= Normal 100% / 2= Fit to width / 3= Fit to height / 4= Fit to Page
+           + '&portrait=false'      # landscape
+           + '&top_margin=0.75'     # Margin
+           + '&bottom_margin=0.75'  # Margin
+           + '&left_margin=0.7'     # Margin
+           + '&right_margin=0.7'    # Margin
+           + '&gid=' + sheetNum     # sheetId
+           + '&access_token=' + key["accessToken"])  # accesstoken
+    req = requests.get(exportURL)
+    with open(common.exportPDFFileName, 'wb') as saveFile:
+        saveFile.write(req.content)
+    print('Google Sheets exported as PDF sucessfully....')
+#EOF exportGoogleSheetsAsPDF
+
+def sendEmail(filename):
+    print('Emailing PDF....')
+    msg = EmailMessage()
+    msg['Subject'] = "Camarilla Values for Today - "+datetime.today().strftime("%b-%d-%Y")
+    msg['From'] = common.senderEmailAddress 
+    msg['To'] = common.recipientEmailAddress 
+    msg.set_content('Camarilla Values for today are attached in the PDF. \nThanks')
+
+    with open(filename, 'rb') as file:
+        msg.add_attachment(file.read(), maintype='application', subtype='octet-stream', filename=file.name)
+    
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(common.senderEmailAddress, decrypt(' "7$jcc')) 
+        smtp.send_message(msg)
+#EOF-sendEmail
+
+def sendGridMail(filename):
+    sender = common.senderEmailAddress
+    receiver = common.recipientEmailAddress
+    email_subject = "Camarilla Values for Today - "+datetime.today().strftime("%b-%d-%Y")
+    email_body = 'Camarilla Values for today are attached in the PDF. \nThanks'
+    sg = SendGridAPIClient(api_key=common.sendGrid_API_KEY)
+    message = Mail(from_email=sender,to_emails=receiver,subject=email_subject,html_content=email_body)
+        
+    with open(filename, 'rb') as f:
+        data = f.read()
+    encoded = base64.b64encode(data).decode()
+    attachment = Attachment()
+    attachment.file_content = FileContent(encoded)
+    attachment.file_type = FileType('application/pdf')
+    attachment.file_name = FileName(filename)
+    attachment.disposition = Disposition('attachment')
+    attachment.content_id = ContentId('Content ID')
+    message.attachment = attachment
+
+    response = sg.send(message)
+    print("Emailing PDF....Status Code-",response.status_code)
+#EOF sendGridMail
+        
+def decrypt(inpString): 
+    xorKey = 'S'; 
+    length = len(inpString); 
+    for i in range(length): 
+        inpString = (inpString[:i] + chr(ord(inpString[i]) ^ ord(xorKey)) + inpString[i + 1:]); 
+    return inpString 
+
+if __name__=="__main__": 
+    try:
+        data = downloadWebData()
+        data = processInputData(data)
+        data = storeDataToXL(data)
+        key  = saveDataToGoogleSheets(data)
+        exportGoogleSheetsAsPDF(key)
+        #sendEmail(common.exportPDFFileName)
+        sendGridMail(common.exportPDFFileName)
+    except Exception as e:
+        print("Error: ",e)
+    finally:
+        print("Exiting program...")
