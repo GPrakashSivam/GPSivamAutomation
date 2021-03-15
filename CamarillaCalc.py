@@ -21,6 +21,7 @@ def downloadWebData():
     # Bhavcopy trade data stored in vBC variable in the script tag of page content
     regex = r"var vBC=(.*?);"
     scripts = soup.find_all('script')
+    df = pd.DataFrame()
     for script in scripts:	
        match = re.search(regex, str(script.string)) 
        if match != None: 
@@ -33,7 +34,6 @@ def downloadWebData():
 
 def processInputData(data):
     print("Processing data...")
-
     #Strip of leading whitespaces in the column
     data["Symbol"] = data["Symbol"].str.strip()
     symbols = common.symbols.split(",")
@@ -118,17 +118,23 @@ def saveDataToGoogleSheets(data):
 if __name__=="__main__": 
     try:
         print("Main Program started...",datetime.today())
-        sched = BlockingScheduler(timezone="Asia/Kolkata")
-        @sched.scheduled_job('cron', day_of_week='mon-sun', hour=22, minute=10)
+        scheduler = BlockingScheduler(timezone="Asia/Kolkata")
+
+        @scheduler.scheduled_job('cron', day_of_week='mon-fri', hour=common.schedulerHour, minute=common.schedulerMinute)
         def scheduled_job():
             print('Job started @...',datetime.today())
             data = downloadWebData()
             data = processInputData(data)
             data = storeDataToXL(data)
             saveDataToGoogleSheets(data)
-        sched.start()
+
+        scheduler.start()
         print("Main Program Ended...",datetime.today())
+
     except Exception as e:
         print("Error: ",e)
+        scheduler.shutdown()
+        
     finally:
         print("Exiting program...")
+        scheduler.shutdown()        

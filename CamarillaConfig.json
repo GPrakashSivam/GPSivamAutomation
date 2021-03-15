@@ -2,6 +2,8 @@
     "GoogleSheetURL": "https://docs.google.com/spreadsheets/d/",
     "GoogleSheetName": "CamarillaSheet",
     "URL": "https://www.mcxindia.com/market-data/bhavcopy",
-    "OutputXLFilename": "Camarilla_Calc.xlsx",
-    "Symbols": "CRUDEOIL-1,NATURALGAS-1,GOLD-1,SILVER-1,COPPER-2,ZINC-2,LEAD-2,NICKEL-2,ALUMINIUM-2"
+	"OutputXLFilename": "Camarilla_Calc.xlsx",
+    "Symbols": "CRUDEOIL-1,NATURALGAS-1,GOLD-1,SILVER-1,COPPER-1,ZINC-1,LEAD-1,NICKEL-1,ALUMINIUM-1",
+	"SchedulerHour": "16",
+	"SchedulerMinute": "0"
 }
