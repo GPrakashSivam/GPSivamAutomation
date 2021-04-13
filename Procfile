@@ -1,1 +1,1 @@
-web: gunicorn StartFlask.py:app
+web: gunicorn StartFlask:app
