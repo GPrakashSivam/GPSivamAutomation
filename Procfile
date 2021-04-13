@@ -1,1 +1,1 @@
-web: gunicorn StartFlask:app
+web: gunicorn wsgi:app
