@@ -1,1 +1,1 @@
-worker: python CamarillaCalc.py
+web: gunicorn StartFlask.py:app
