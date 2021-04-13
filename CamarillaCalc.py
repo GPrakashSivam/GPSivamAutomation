@@ -2,16 +2,17 @@ import pandas as pd
 import openpyxl
 import requests
 import gspread
+import json
+import os
 import re
 from bs4 import BeautifulSoup
 from oauth2client.service_account import ServiceAccountCredentials
 from openpyxl.utils.dataframe import dataframe_to_rows
 from datetime import datetime
-from apscheduler.schedulers.blocking import BlockingScheduler
-import commonUtility as common
+import CommonUtility as common
 
 #Program to download data file from web, process the data and get Camarilla values
-#and finally store those values in local XL file and google sheets.
+#and finally store those values in local XL file, google sheets, export sheet as PDF.
 
 def downloadWebData():
     print("Getting data from web...")
@@ -21,7 +22,6 @@ def downloadWebData():
     # Bhavcopy trade data stored in vBC variable in the script tag of page content
     regex = r"var vBC=(.*?);"
     scripts = soup.find_all('script')
-    df = pd.DataFrame()
     for script in scripts:	
        match = re.search(regex, str(script.string)) 
        if match != None: 
@@ -34,8 +34,10 @@ def downloadWebData():
 
 def processInputData(data):
     print("Processing data...")
+
     #Strip of leading whitespaces in the column
     data["Symbol"] = data["Symbol"].str.strip()
+    
     symbols = common.symbols.split(",")
     # populate dataframe with first record
     finalData = filterData(data,symbols[0])
@@ -110,31 +112,44 @@ def saveDataToGoogleSheets(data):
     client = gspread.authorize(creds) 
     sheets = client.open(common.googleSheetName)
     worksheet = sheets.get_worksheet(0)
+    key = {}
+    key["accessToken"] = client.auth.token
+    key["sheetId"] = sheets.id
+
     dataTranposed = data.transpose().fillna(0)
     worksheet.update('CamarillaRange', dataTranposed.values.tolist())
     print("Data moved to Google sheets...")
+    return key
 #EOF saveDataToGoogleSheets
 
-if __name__=="__main__": 
+def exportGoogleSheetsAsPDF(key):
+    sheetNum = '0'
+    exportURL = (common.googleSheetURL + key["sheetId"] + '/export?'
+           + 'format=pdf'           # export as PDF
+           + '&size=legal'          # A3/A4/A5/B4/B5/letter/tabloid/legal/statement/executive/folio
+           + '&scale=4'             # 1= Normal 100% / 2= Fit to width / 3= Fit to height / 4= Fit to Page
+           + '&portrait=false'      # landscape
+           + '&top_margin=0.75'     # Margin
+           + '&bottom_margin=0.75'  # Margin
+           + '&left_margin=0.7'     # Margin
+           + '&right_margin=0.7'    # Margin
+           + '&gid=' + sheetNum     # sheetId
+           + '&access_token=' + key["accessToken"])  # accesstoken
+    req = requests.get(exportURL)
+    with open(common.exportPDFFileName, 'wb') as saveFile:
+        saveFile.write(req.content)
+    print('Google Sheets exported as PDF sucessfully....')
+#EOF exportGoogleSheetsAsPDF
+
+def GetCamarillaCalc():
     try:
-        print("Main Program started...",datetime.today())
-        scheduler = BlockingScheduler(timezone="Asia/Kolkata")
-
-        @scheduler.scheduled_job('cron', day_of_week='mon-fri', hour=common.schedulerHour, minute=common.schedulerMinute)
-        def scheduled_job():
-            print('Job started @...',datetime.today())
-            data = downloadWebData()
-            data = processInputData(data)
-            data = storeDataToXL(data)
-            saveDataToGoogleSheets(data)
-
-        scheduler.start()
-        print("Main Program Ended...",datetime.today())
-
+        data = downloadWebData()
+        data = processInputData(data)
+        data = storeDataToXL(data)
+        key  = saveDataToGoogleSheets(data)
+        exportGoogleSheetsAsPDF(key)
     except Exception as e:
         print("Error: ",e)
-        scheduler.shutdown()
-        
     finally:
-        print("Exiting program...")
-        scheduler.shutdown()        
+        print("Exiting Camarilla Calc Module.")
+#EOF GetCamarillaCalc
